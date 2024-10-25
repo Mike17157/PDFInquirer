@@ -50,7 +50,7 @@ class EmbeddingsGenerator:
 
         response = self.anthropic.messages.create(
             model="claude-3-haiku-20240307",
-            max_tokens=150,
+            max_tokens=300,
             temperature=0.0,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -81,33 +81,53 @@ class EmbeddingsGenerator:
         """
         processed_sections = []
         
-        # First pass: Generate initial summaries without context
+        # First pass: Generate initial summaries or translations
         for section in sections:
             if section['type'] == 'text':
+                # Use Claude to extract text from the image
+                prompt = f"Please extract the text from the image: {section['description']}"
+                response = self.anthropic.messages.create(
+                    model="claude-3-haiku-20240307",
+                    max_tokens=300,
+                    temperature=0.0,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                section['text'] = response.content[0].text
                 initial_summary = self._generate_section_summary(section['text'], [])
                 section['summary'] = initial_summary
+                
+            elif section['type'] == 'image':
+                # Use Claude to generate text from image description
+                prompt = f"Please describe the content of the image: {section['description']}"
+                response = self.anthropic.messages.create(
+                    model="claude-3-haiku-20240307",
+                    max_tokens=300,
+                    temperature=0.0,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                section['text'] = response.content[0].text
+                section['summary'] = section['text']
             processed_sections.append(section)
         
         # Second pass: Update summaries with context
         for i, section in enumerate(processed_sections):
-            if section['type'] == 'text':
-                # Get nearby section summaries
-                nearby_summaries = self._get_nearby_sections(processed_sections, i)
-                
-                # Generate contextual summary
-                section['summary'] = self._generate_section_summary(
-                    section['text'], 
-                    nearby_summaries
-                )
-                
-                # Generate embedding from summary
-                section['embedding'] = self.embedding_model.encode(
-                    section['summary']
-                ).tolist()
-                
-                if self.debug:
-                    self.logger.debug(f"Processed section {i}:")
-                    self.logger.debug(f"Summary: {section['summary'][:100]}...")
-                    self.logger.debug(f"Context from {len(nearby_summaries)} nearby sections")
+            # Get nearby section summaries
+            nearby_summaries = self._get_nearby_sections(processed_sections, i)
+            
+            # Generate contextual summary
+            section['summary'] = self._generate_section_summary(
+                section['text'], 
+                nearby_summaries
+            )
+            
+            # Generate embedding from summary
+            section['embedding'] = self.embedding_model.encode(
+                section['summary']
+            ).tolist()
+            
+            if self.debug:
+                self.logger.debug(f"Processed section {i}:")
+                self.logger.debug(f"Summary: {section['summary'][:100]}...")
+                self.logger.debug(f"Context from {len(nearby_summaries)} nearby sections")
         
         return processed_sections
